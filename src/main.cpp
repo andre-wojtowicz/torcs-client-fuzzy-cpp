@@ -57,13 +57,14 @@ typedef struct sockaddr_in tSockAddrIn;
 class __DRIVER_CLASS__;
 typedef __DRIVER_CLASS__ tDriver;
 
-void parse_args(int argc, char *argv[], std::string &hostName, unsigned int &serverPort, std::string &id, unsigned int &maxEpisodes,
-    unsigned int &maxSteps, std::string &trackName, BaseDriver::tstage &stage, std::string &fclFile)
+void parse_args(int argc, char *argv[], std::string &serverName, unsigned int &serverPort, 
+    std::string &driverId, std::string &trackName, BaseDriver::tstage &stage, 
+    unsigned int &maxEpisodes, unsigned int &maxSteps, std::string &fclFile)
 {
     // Set default values
-    hostName    = "localhost";
+    serverName  = "localhost";
     serverPort  = 3001;
-    id          = "SCR_Fuzzy";
+    driverId    = "SCR_Fuzzy";
     trackName   = "unknown";
     maxEpisodes = 0;
     maxSteps    = 0;
@@ -76,13 +77,13 @@ void parse_args(int argc, char *argv[], std::string &hostName, unsigned int &ser
     while (i < argc)
     {
         if (args[i].find("host:") == 0)
-            hostName = args[i].substr(5);
+            serverName = args[i].substr(5);
 
         else if (args[i].find("port:") == 0)
             serverPort = std::stoi(args[i].substr(5));
 
         else if (args[i].find("id:") == 0)
-            id = args[i].substr(3);
+            driverId = args[i].substr(3);
 
         else if (args[i].find("maxEpisodes:") == 0)
             maxEpisodes = std::stoi(args[i].substr(12));
@@ -113,37 +114,42 @@ int main(int argc, char *argv[])
 {
     // ---------------------------- config init ----------------------------
 
-    std::string  hostName;
+    std::string  serverName;
     unsigned int serverPort;
-    std::string  id;
-    unsigned int maxEpisodes;
-    unsigned int maxSteps;
+    std::string  driverId;
     std::string  trackName;
     BaseDriver::tstage stage;
+    unsigned int maxEpisodes;
+    unsigned int maxSteps;
     std::string  fclFile;
 
-    parse_args(argc, argv, hostName, serverPort, id, maxEpisodes, maxSteps, trackName, stage, fclFile);
+    parse_args(argc, argv, serverName, serverPort, driverId, trackName, stage, maxEpisodes, maxSteps, fclFile);
 
     std::cout << "Config:" << std::endl;
 
-    std::cout << "\thost: " << hostName << std::endl;
-    std::cout << "\tport: " << serverPort << std::endl;
-    std::cout << "\tid: " << id << std::endl;
-    std::cout << "\tmax steps: " << maxSteps << std::endl;
-    std::cout << "\tmax episodes: " << maxEpisodes << std::endl;
-    std::cout << "\ttrack name: " << trackName << std::endl;
-    std::cout << "\tstage: ";
+    std::cout << " * server name:  " << serverName << std::endl;
+    std::cout << " * server port:  " << serverPort << std::endl;
+    std::cout << " * driver id     " << driverId   << std::endl;
+    std::cout << " * track name:   " << trackName  << std::endl;
+    
+    std::string switchStage;
 
-    if (stage == BaseDriver::WARMUP)
-        std::cout << "warm-up" << std::endl;
-    else if (stage == BaseDriver::QUALIFYING)
-        std::cout << "qualifying" << std::endl;
-    else if (stage == BaseDriver::RACE)
-        std::cout << "race" << std::endl;
-    else
-        std::cout << "unknown" << std::endl;
+    switch (stage)
+    {
+    case BaseDriver::WARMUP:
+        switchStage = "warm-up" ; break;
+    case BaseDriver::QUALIFYING:
+        switchStage = "qualifying"; break;
+    case BaseDriver::RACE:
+        switchStage = "race"; break;
+    default:
+        switchStage = "unknown";
+    }
 
-    std::cout << "\tfcl file: " << fclFile << std::endl << std::endl;
+    std::cout << " * stage:        " << switchStage << std::endl;;
+    std::cout << " * max episodes: " << maxEpisodes << std::endl;
+    std::cout << " * max steps:    " << maxSteps    << std::endl;
+    std::cout << " * fcl file:     " << fclFile     << std::endl << std::endl;
 
     // ---------------------------- socket init ----------------------------
 
@@ -171,10 +177,10 @@ int main(int argc, char *argv[])
     }
 #endif
 
-    hostInfo = gethostbyname(hostName.c_str());
+    hostInfo = gethostbyname(serverName.c_str());
     if (hostInfo == NULL)
     {
-        std::cerr << "Problem interpreting host: " << hostName << std::endl;
+        std::cerr << "Problem interpreting server name: " << serverName << std::endl;
         exit(1);
     }
 
@@ -211,15 +217,19 @@ int main(int argc, char *argv[])
     {
         // Initialising driver on the server
 
+        bool already_reconnecting = false;
+
         do
         {
             // Set angles of rangefinders
             float angles[19];
             d.init(angles);
             std::string initString = SimpleParser::stringify(std::string("init"), angles, 19);
-            initString.insert(0, id);
+            initString.insert(0, driverId);
 
+#ifdef _DEBUG
             std::cout << "Sending init: " << initString << std::endl;
+#endif
 
             if (sendto(socketDescriptor, initString.c_str(), (int)initString.length(), 0,
                 (struct sockaddr *) &serverAddress,
@@ -243,18 +253,32 @@ int main(int argc, char *argv[])
                 numRead = recv(socketDescriptor, buf, UDP_MSGLEN, 0);
                 if (numRead < 0)
                 {
-                    std::cerr << "Didn't get response from server. Reconnecting..." << std::endl;
+                    if (!already_reconnecting)
+                    {
+                        already_reconnecting = true;
+                        std::cerr << "Didn't get response from server. Reconnecting...";
+                    }
+                    else
+                        std::cerr << ".";
+
                     std::this_thread::sleep_for(std::chrono::seconds(1));
                 }
                 else
                 {
+                    if (already_reconnecting)
+                        std::cout << std::endl;
+
                     if (std::string(buf) == "***identified***")
                     {
+#ifdef _DEBUG
                         std::cout << "Driver identified" << std::endl;
+#endif
                         break;
                     }
+#ifdef __UDP_CLIENT_VERBOSE__
                     else
                         std::cout << "Received: " << buf << std::endl;
+#endif
                 }
             }
 
@@ -290,7 +314,9 @@ int main(int argc, char *argv[])
 
                 if (std::string(buf) == "***shutdown***")
                 {
+#ifdef _DEBUG
                     std::cout << std::endl << "Client shutdown" << std::endl;
+#endif
 
                     d.onShutdown();
                     shutdownClient = true;
@@ -299,7 +325,9 @@ int main(int argc, char *argv[])
 
                 if (std::string(buf) == "***restart***")
                 {
+#ifdef _DEBUG
                     std::cout << std::endl << "Client restart" << std::endl;
+#endif
 
                     d.onRestart();
                     break;

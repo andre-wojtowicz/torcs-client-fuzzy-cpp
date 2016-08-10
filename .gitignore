@@ -234,3 +234,4 @@ _Pvt_Extensions
 
 # FAKE - F# Make
 .fake/
+torcs-client-fuzzy-cpp.VC.db

@@ -53,12 +53,12 @@ void FuzzyDriver::init(float *angles)
 
 void FuzzyDriver::onShutdown()
 {
-    std::cout << "Bye bye!" << std::endl;
+    std::cout << std::endl << "Bye bye!" << std::endl;
 }
 
 void FuzzyDriver::onRestart()
 {
-    std::cout << "Restarting the race!" << std::endl;
+    std::cout << std::endl << "Restarting the race!" << std::endl;
 }
 
 /* Gear Changing Constants*/
